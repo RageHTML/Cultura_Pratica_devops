@@ -30,4 +30,6 @@ jobs:
       - name: testar-aplicacao
         run: |
           cd web_server
-          uv run python -c "import main.py; print('FastAPI carregado com sucesso via uv!')"
+    run: |
+          cd web_server
+          uv run python -c "import sys; sys.path.insert(0, '.'); import main; print('FastAPI carregado com sucesso via uv!')"

@@ -1,1 +1,33 @@
-jobs build steps, need, schedrule
+name: FastAPI CI com UV
+
+on:
+  push:
+    branches: [ "main"]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  verificar-com-uv:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: baixar-codigo
+        uses: actions/checkout@v4
+
+      - name: baixar-uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: baixar-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: configurar-uv
+        run: |
+          cd web_server
+          uv sync --locked
+
+      - name: testar-aplicacao
+        run: |
+          cd web_server
+          uv run python -c "import main; print('FastAPI carregado com sucesso via uv!')"

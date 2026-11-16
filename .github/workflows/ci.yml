@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   verificar-e-testar:
     runs-on: ubuntu-latest
@@ -41,31 +44,46 @@ jobs:
           cd web_server
           uv run python -c "import main; print('FastAPI carregado com sucesso via uv!')"
 
+  # Nó de SAST (Análise Estática de Segurança)
   sast:
     name: Análise SAST (Semgrep)
     needs: verificar-e-testar
     runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
 
       - name: Executar Semgrep SAST
-        uses: semgrep/semgrep-action@v1
-        with:
-          config: auto
-          generateSarif: "true"
+        run: semgrep scan --config auto --sarif --output semgrep.sarif
 
+      - name: Guardar relatório como artefato
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+
+      # Requer repositório público ou GitHub Advanced Security habilitado
       - name: Enviar relatório para o GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
-          sarif_file: 'semgrep.sarif'
+          sarif_file: semgrep.sarif
 
-  # 3. Nó de DAST (Análise Dinâmica de Segurança)
+  # Nó de DAST (Análise Dinâmica de Segurança)
   dast:
     name: Análise DAST (OWASP ZAP)
     needs: [verificar-e-testar, sast]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
@@ -83,7 +101,15 @@ jobs:
           cd web_server
           uv sync --locked
           uv run uvicorn main:app --host 0.0.0.0 --port 8000 &
-          sleep 5
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:8000/ > /dev/null; then
+              echo "API no ar!"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API não respondeu a tempo"
+          exit 1
 
       - name: Executar OWASP ZAP Scan
         uses: zaproxy/action-baseline@v0.14.0

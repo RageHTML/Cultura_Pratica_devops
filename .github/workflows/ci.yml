@@ -1,17 +1,56 @@
-name: FastAPI CI/CD com UV e Segurança
+name: CI/CD Seguro (FastAPI + UV)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  APP_DIR: ""
+  PYTHON_VERSION: "3.11"
+  APP_MODULE: "main:app"
+  PORT: "8000"
+  HEALTH_PATH: "/"
+
 jobs:
-  verificar-e-testar:
+  config:
+    name: Detectar projeto
     runs-on: ubuntu-latest
+    outputs:
+      app_dir: ${{ steps.detectar.outputs.app_dir }}
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Localizar pyproject.toml
+        id: detectar
+        run: |
+          if [ -n "$APP_DIR" ] && [ -f "$APP_DIR/pyproject.toml" ]; then
+            DIR="$APP_DIR"
+          else
+            DIR=$(find . -maxdepth 3 -name pyproject.toml \
+              -not -path "*/.venv/*" -not -path "*/node_modules/*" \
+              | sort | head -1 | xargs -r dirname)
+          fi
+          if [ -z "$DIR" ]; then
+            echo "pyproject.toml não encontrado no repositório"
+            exit 1
+          fi
+          echo "Projeto encontrado em: $DIR"
+          echo "app_dir=$DIR" >> "$GITHUB_OUTPUT"
+
+  verificar-e-testar:
+    name: Lint, tipagem e testes
+    needs: config
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ needs.config.outputs.app_dir }}
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
@@ -22,29 +61,27 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Sincronizar dependências com UV
+      - name: Sincronizar dependências
         run: |
-          cd web_server
-          uv sync --locked
+          if [ -f uv.lock ]; then
+            uv sync --locked
+          else
+            uv sync
+          fi
 
       - name: Validar Linting (Ruff)
-        run: |
-          cd web_server
-          uv run ruff check .
+        run: uvx ruff check .
 
       - name: Validar Tipagem Estática (MyPy)
-        run: |
-          cd web_server
-          uv run mypy .
+        run: uv run --with mypy mypy .
 
-      - name: Testar aplicação
+      - name: Testar carregamento da aplicação
         run: |
-          cd web_server
-          uv run python -c "import main; print('FastAPI carregado com sucesso via uv!')"
+          MODULE="${APP_MODULE%%:*}"
+          uv run python -c "import ${MODULE}; print('Aplicação carregada com sucesso via uv!')"
 
-  # Nó de SAST (Análise Estática de Segurança)
   sast:
     name: Análise SAST (Semgrep)
     needs: verificar-e-testar
@@ -58,7 +95,7 @@ jobs:
       - name: Baixar código
         uses: actions/checkout@v4
 
-      - name: Executar Semgrep SAST
+      - name: Executar Semgrep
         run: semgrep scan --config auto --sarif --output semgrep.sarif
 
       - name: Guardar relatório como artefato
@@ -68,7 +105,6 @@ jobs:
           name: semgrep-sarif
           path: semgrep.sarif
 
-      # Requer repositório público ou GitHub Advanced Security habilitado
       - name: Enviar relatório para o GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
@@ -76,14 +112,16 @@ jobs:
         with:
           sarif_file: semgrep.sarif
 
-  # Nó de DAST (Análise Dinâmica de Segurança)
   dast:
     name: Análise DAST (OWASP ZAP)
-    needs: [verificar-e-testar, sast]
+    needs: [config, verificar-e-testar, sast]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       issues: write
+    defaults:
+      run:
+        working-directory: ${{ needs.config.outputs.app_dir }}
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
@@ -94,15 +132,18 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Iniciar API FastAPI em background
+      - name: Iniciar API em background
         run: |
-          cd web_server
-          uv sync --locked
-          uv run uvicorn main:app --host 0.0.0.0 --port 8000 &
+          if [ -f uv.lock ]; then
+            uv sync --locked
+          else
+            uv sync
+          fi
+          uv run --with uvicorn uvicorn "$APP_MODULE" --host 0.0.0.0 --port "$PORT" &
           for i in $(seq 1 30); do
-            if curl -s http://localhost:8000/ > /dev/null; then
+            if curl -s "http://localhost:${PORT}${HEALTH_PATH}" > /dev/null; then
               echo "API no ar!"
               exit 0
             fi
@@ -114,5 +155,5 @@ jobs:
       - name: Executar OWASP ZAP Scan
         uses: zaproxy/action-baseline@v0.14.0
         with:
-          target: 'http://localhost:8000/'
+          target: 'http://localhost:${{ env.PORT }}${{ env.HEALTH_PATH }}'
           fail_action: false

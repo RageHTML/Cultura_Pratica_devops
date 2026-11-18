@@ -88,9 +88,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep
-    permissions:
-      contents: read
-      security-events: write
+    #permissions:
+      #contents: read
+      #security-events: write
     steps:
       - name: Baixar código
         uses: actions/checkout@v4

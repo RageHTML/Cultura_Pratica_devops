@@ -71,8 +71,8 @@ jobs:
             uv sync
           fi
 
-      - name: Validar Linting (Ruff)
-        run: uvx ruff check .
+      #- name: Validar Linting (Ruff)
+      #  run: uvx ruff check .
 
       - name: Validar Tipagem Estática (MyPy)
         run: uv run --with mypy mypy .

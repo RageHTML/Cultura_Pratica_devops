@@ -71,8 +71,7 @@ jobs:
             uv sync
           fi
 
-      #- name: Validar Linting (Ruff)
-      #  run: uvx ruff check .
+      
 
       - name: Validar Tipagem Estática (MyPy)
         run: uv run --with mypy mypy .
@@ -94,6 +93,9 @@ jobs:
     steps:
       - name: Baixar código
         uses: actions/checkout@v4
+
+      - name: Validar Linting (Ruff)
+        run: uvx ruff check .
 
       - name: Executar Semgrep
         run: semgrep scan --config auto --sarif --output semgrep.sarif

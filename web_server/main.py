@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-
+abdcd
 @app.get("/", response_class=HTMLResponse)
 async def exibir_pagina(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
